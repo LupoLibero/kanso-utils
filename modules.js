@@ -125,7 +125,7 @@ exports.addFile = function (pkgdir, p, doc, callback) {
         var module_path = rel.replace(/\.js$/, '');
         var src = content.toString();
         exports.add(doc, module_path, src, p);
-        callback()
+        callback();
     });
 };
 
@@ -155,13 +155,7 @@ exports.filenameFilter = function (p) {
         if (f === p) {
             return true;
         }
-        var relpath = utils.relpath(f, p);
-        // should not start with a '.'
-        if (/^\.[^\/]?/.test(relpath)) {
-            return false;
-        }
-        // should not contain a file or folder starting with a '.'
-        if (/\/\./.test(relpath)) {
+        if ( path.basename(f).indexOf('.') === 0) {
             return false;
         }
         // should have a .js extension

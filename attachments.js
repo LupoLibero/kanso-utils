@@ -80,7 +80,7 @@ exports.addFile = function (pkgdir, p, doc, callback) {
             exports.add(doc, rel, p, content);
         }
         catch (e) {
-            return callback(e)
+            return callback(e);
         }
         callback();
     });
@@ -113,15 +113,6 @@ exports.filenameFilter = function (p) {
         if (f === p) {
             return true;
         }
-        var relpath = utils.relpath(f, p);
-        // should not start with a '.'
-        if (/^\.[^\/]?/.test(relpath)) {
-            return false;
-        }
-        // should not contain a file or folder starting with a '.'
-        if (/\/\./.test(relpath)) {
-            return false;
-        }
-        return true;
+        return path.basename(f).indexOf('.') !== 0;
     };
 };

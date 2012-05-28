@@ -5,13 +5,24 @@
 var path = require('path'),
     url = require('url'),
     fs = require('fs'),
+    mkdirp = require('mkdirp'),
+    rimraf = require('rimraf'),
     async = require('async'),
+    logger = require('./logger'),
+    prompt = require('prompt'),
     urlFormat = require('url').format,
     urlParse = require('url').parse,
     child_process = require('child_process'),
     evals = process.binding('evals'),
+    env = require('./env'),
     Script = evals.Script || evals.NodeScript;
 
+/**
+ * Splits the given path into an array based on the OS's path separator.
+ */
+var splitPath = exports.splitPath = function(pathString) {
+    return path.normalize(pathString).split(env.osSep);
+};
 
 /**
  * Converts a relative file path to properties on an object, and assigns a
@@ -29,7 +40,7 @@ var path = require('path'),
 
 exports.setPropertyPath = function (obj, p, val) {
     // normalize to remove unessecary . and .. from paths
-    var parts = path.normalize(p).split('/');
+    var parts = splitPath(p);
     var curr = [];
 
     // loop through all parts of the path except the last, creating the
@@ -95,7 +106,7 @@ exports.getPropertyPaths = function (root, obj) {
 
 exports.getPropertyPath = function (obj, p, invalid) {
     // normalize to remove unessecary . and .. from paths
-    var parts = path.normalize(p).split('/');
+    var parts = splitPath(p);
 
     // if path is empty, return the root object
     if (!p) {
@@ -223,35 +234,15 @@ exports.readJSON = function (path, callback) {
  */
 
 exports.relpath = function (p1, p2) {
-    // if both p1 and p2 are relative, change both to absolute
-    if (p1[0] !== '/' && p2[0] !== '/') {
-        p1 = exports.abspath(p1);
-        p2 = exports.abspath(p2);
-    }
-    // if p1 is not absolute or p2 is not absolute, return p1 unchanged
-    if (p1[0] !== '/' || p2[0] !== '/') {
+    p1 = path.normalize(p1);
+    p2 = path.normalize(p2);
+
+    // If p1 is already relative it is returned unchanged, unless both are relative.
+    if ( !env.isAbsolute(p1) && env.isAbsolute(p2) ) {
         return p1;
     }
 
-    // remove trailing slashes
-    p1 = exports.rmTrailingSlash(p1);
-    p2 = exports.rmTrailingSlash(p2);
-
-    var p1n = path.normalize(p1).split('/'),
-        p2n = path.normalize(p2).split('/');
-
-
-    while (p1n.length && p2n.length && p1n[0] === p2n[0]) {
-        p1n.shift();
-        p2n.shift();
-    }
-
-    // if p1 is not a sub-path of p2, then we need to add some ..
-    for (var i = 0; i < p2n.length; i++) {
-        p1n.unshift('..');
-    }
-
-    return path.join.apply(null, p1n);
+    return path.relative(p2, p1);
 };
 
 
@@ -319,17 +310,7 @@ exports.padRight = function (str, minlength) {
  */
 
 exports.ensureDir = function (path, callback) {
-    var mkdir = child_process.spawn('mkdir', ['-p', path]);
-    var err_data = '';
-    mkdir.stderr.on('data', function (data) {
-        err_data += data.toString();
-    });
-    mkdir.on('exit', function (code) {
-        if (code !== 0) {
-            return callback(new Error(err_data));
-        }
-        callback();
-    });
+    mkdirp(path, callback);
 };
 
 
@@ -383,31 +364,8 @@ exports.mv = function (/* optional */options, from, to, callback) {
     });
 };
 
-exports.rm = function (/* optional */options, target, callback) {
-    // options are optional
-    if (!callback) {
-        callback = target;
-        target = options;
-        options = [];
-    }
-    /* for options to an array */
-    if (!Array.isArray(options)) {
-        options = [options];
-    }
-    if (!Array.isArray(target)) {
-        target = [target];
-    }
-    var rm = child_process.spawn('rm', options.concat(target));
-    var err_data = '';
-    rm.stderr.on('data', function (data) {
-        err_data += data.toString();
-    });
-    rm.on('exit', function (code) {
-        if (code !== 0) {
-            return callback(new Error(err_data));
-        }
-        callback();
-    });
+exports.rm = function (target, callback) {
+    return rimraf(target, callback);
 };
 
 
@@ -423,11 +381,7 @@ exports.rm = function (/* optional */options, target, callback) {
  */
 
 exports.abspath = function (p, /*optional*/cwd) {
-    if (p[0] === '/') {
-        return p;
-    }
-    cwd = cwd || process.cwd();
-    return path.normalize(path.join(cwd, p));
+    return path.resolve(cwd, p);
 };
 
 /**
@@ -452,6 +406,91 @@ exports.stringifyFunctions = function (obj) {
         }
     }
     return obj;
+};
+
+exports.getConfirmation = function (msg, callback) {
+    function trim(str) {
+        var trimmed = str.replace(/^\s*/, '');
+        return trimmed.replace(/\s*$/, '');
+    }
+
+    if (!prompt.started) {
+        prompt.start();
+    }
+
+    var val;
+    async.until(
+        function () {
+            var valid = (val === '' || val === 'y' || val === 'n');
+            if (!valid) {
+                process.stdout.write(msg + ' [Y/n]: ');
+            }
+            return valid;
+        },
+        function (cb) {
+            prompt.readLine(function (err, line) {
+                if (err) {
+                    return cb(err);
+                }
+                val = trim(line).toLowerCase();
+                cb();
+            });
+        },
+        function (err) {
+            callback(err, val === '' || val === 'y');
+        }
+    );
+};
+
+exports.getPassword = function (callback) {
+    process.stdout.write('Password: ');
+    if (!prompt.started) {
+        prompt.start();
+    }
+    prompt.readLineHidden(callback);
+};
+
+exports.getUsername = function (callback) {
+    process.stdout.write('Username: ');
+    if (!prompt.started) {
+        prompt.start();
+    }
+    prompt.readLine(callback);
+};
+
+exports.getAuth = function (url, callback) {
+    var parsed = urlParse(url);
+    // if a username has been specified, only ask for password
+    if (parsed.auth && parsed.auth.split(':').length === 1) {
+        console.log('Please provide credentials for: ' + url);
+        exports.getPassword(function (err, password) {
+            if (err) {
+                return callback(err);
+            }
+            delete parsed.host;
+            parsed.auth += ':' + password;
+            console.log('');
+            callback(null, urlFormat(parsed));
+        });
+    }
+    else {
+        delete parsed.auth;
+        delete parsed.host;
+        var noauth = exports.noAuthURL(url);
+        console.log('Please provide credentials for: ' + noauth);
+        exports.getUsername(function (err, username) {
+            if (err) {
+                return callback(err);
+            }
+            exports.getPassword(function (err, password) {
+                if (err) {
+                    return callback(err);
+                }
+                parsed.auth = username + ':' + password;
+                callback(null, urlFormat(parsed));
+            });
+        });
+    }
 };
 
 exports.padRight = function (str, len) {
@@ -484,10 +523,8 @@ exports.ISODateString = function (d) {
 
 // tests if 'a' is a path below (or equal to) 'b'
 exports.isSubPath = function (a, b) {
-    var na = path.normalize(a);
-    var nb = path.normalize(b);
-    var pa = na.split('/');
-    var pb = nb.split('/');
+    var pa = splitPath(a);
+    var pb = splitPath(b);
     if (pa.length < pb.length) {
         return false;
     }
@@ -497,6 +534,18 @@ exports.isSubPath = function (a, b) {
         }
     }
     return true;
+};
+
+exports.formatSize = function (size) {
+    var jump = 512;
+    if (size < jump) return size + " bytes";
+    var units = ["KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+    var i = 0;
+    while (size >= jump && i < units.length) {
+        i += 1;
+        size /= 1024;
+    }
+    return size.toFixed(1) + ' ' + units[i - 1];
 };
 
 /**
@@ -509,4 +558,112 @@ exports.noAuthURL = function (url) {
     delete parts.auth;
     delete parts.host;
     return urlFormat(parts);
+};
+
+
+/**
+ * Used by commands converting a URL argument to a real URL by attempting to
+ * match against environments in .kansorc etc
+ */
+
+exports.argToEnv = function (settings, url) {
+    var environment, parsed;
+    if (!url) {
+        if (settings && settings.env && settings.env['default']) {
+            environment = settings.env['default'];
+            if (!environment.db) {
+                throw new Error('Environment missing db property');
+            }
+            return environment;
+        }
+        else {
+            throw new Error('No CouchDB URL specified');
+        }
+    }
+    url = url.replace(/\/$/, '');
+
+    if (!/^http/.test(url)) {
+        var auth;
+        if (url.indexOf('@') !== -1) {
+            auth = url.split('@')[0];
+            url = url.split('@').slice(1).join('@');
+        }
+        if (settings && settings.env && url in settings.env) {
+            environment = settings.env[url];
+            if (!environment.db) {
+                throw new Error('Environment missing db property');
+            }
+            if (auth) {
+                parsed = urlParse(environment.db);
+                parsed.auth = auth;
+                environment.db = urlFormat(parsed);
+            }
+            return environment;
+        }
+        else {
+            url = 'http://localhost:5984/' + url;
+            if (auth) {
+                parsed = urlParse(url);
+                parsed.auth = auth;
+                url = urlFormat(parsed);
+            }
+            return {db: url};
+        }
+    }
+    return url ? {db: url}: null;
+};
+
+
+/**
+ * Used by commands wanting to add auth info to a URL. It will only prompt for
+ * a password if the URL has a username, but no password associated with it.
+ * Optionally you can force an auth prompt if the url has no auth data at all
+ * by setting force to true.
+ */
+
+exports.completeAuth = function (url, force, callback) {
+    var parsed = urlParse(url);
+    if (parsed.auth) {
+        // if only a username has been specified, ask for password
+        if (parsed.auth.split(':').length === 1) {
+            return exports.getAuth(url, callback);
+        }
+    }
+    else if (force) {
+        // no auth info, but auth required
+        return exports.getAuth(url, callback);
+    }
+    callback(null, url);
+};
+
+
+exports.catchAuthError = function (fn, url, extra_args, callback) {
+    fn.apply(null, [url].concat(extra_args).concat(function (err) {
+        if (err && err.response && err.response.statusCode === 401) {
+            logger.error(err.message || err.toString());
+            exports.getAuth(url, function (err, url) {
+                if (err) {
+                    return callback(err);
+                }
+                console.log('');
+                exports.catchAuthError(fn, url, extra_args, callback);
+            });
+        }
+        else {
+            callback.apply(this, arguments);
+        }
+    }));
+};
+
+/**
+ * Reads the version property from Kanso's package.json
+ */
+
+exports.getKansoVersion = function (callback) {
+    exports.readJSON(__dirname + '/../package.json', function (err, pkg) {
+        if (err) {
+            return callback(err);
+        }
+        return callback(null, pkg.version);
+    });
 };
