@@ -8,7 +8,7 @@ var path = require('path'),
     mkdirp = require('mkdirp'),
     rimraf = require('rimraf'),
     async = require('async'),
-    logger = require('./logger'),
+//    logger = require('./logger'),
     prompt = require('prompt'),
     urlFormat = require('url').format,
     urlParse = require('url').parse,
@@ -640,7 +640,7 @@ exports.completeAuth = function (url, force, callback) {
 exports.catchAuthError = function (fn, url, extra_args, callback) {
     fn.apply(null, [url].concat(extra_args).concat(function (err) {
         if (err && err.response && err.response.statusCode === 401) {
-            logger.error(err.message || err.toString());
+//            logger.error(err.message || err.toString());
             exports.getAuth(url, function (err, url) {
                 if (err) {
                     return callback(err);
