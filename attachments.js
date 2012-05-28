@@ -8,7 +8,8 @@
 var utils = require('./utils'),
     mime = require('mime'),
     async = require('async'),
-    fs = require('fs');
+    fs = require('fstream'),
+    path = require('path');
 
 
 /**

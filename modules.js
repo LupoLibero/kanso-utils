@@ -212,7 +212,7 @@ exports.require = function (module_cache, doc, current, target, context) {
         return module_cache[p];
     }
 
-    var nodes = p.split('/').slice(1);
+    var nodes = utils.splitPath(p).slice(1);
     var content = nodes.reduce(function (a, x) {
         if (a[x] === undefined) {
             throw new Error(
