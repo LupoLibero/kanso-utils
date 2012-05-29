@@ -11,6 +11,7 @@ var utils = require('./utils'),
     fs = require('fs'),
     evals = process.binding('evals'),
     Script = evals.Script || evals.NodeScript;
+var env = require('./env');
 
 
 // As modules are added, their original file paths are added to this object
@@ -123,6 +124,11 @@ exports.addFile = function (pkgdir, p, doc, callback) {
         }
         var rel = utils.relpath(p, pkgdir);
         var module_path = rel.replace(/\.js$/, '');
+        
+        // If we are on windows then we need to revert the back-slashes to forward-slashes
+        if ( env.isWindows ) {
+            module_path = module_path.replace(/\\/, '/');
+        }
         var src = content.toString();
         exports.add(doc, module_path, src, p);
         callback();

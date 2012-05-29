@@ -8,9 +8,9 @@
 var utils = require('./utils'),
     mime = require('mime'),
     async = require('async'),
-    fs = require('fstream'),
+    fs = require('fs'),
     path = require('path');
-
+var env = require('./env');
 
 /**
  *
@@ -21,6 +21,11 @@ var utils = require('./utils'),
  */
 
 exports.add = function (doc, ddoc_path, original_path, content) {
+    // If we are on windows then we need to revert the back-slashes to forward-slashes
+    if ( env.isWindows ) {
+        ddoc_path = ddoc_path.replace(/\\/g, '/');
+    }
+
     if (!(content instanceof Buffer)) {
         content = new Buffer(content);
     }
