@@ -79,6 +79,7 @@ exports.add = function (doc, path, src, /*optional*/filename) {
  */
 
 exports.wrap = function (path, src) {
+    path = path.replace(/\\/g, '/');
     return '/********** ' + path + ' **********/\n\n' +
         'kanso.moduleCache["' + path.replace('"', '\\"') + '"] = ' +
         '{load: (function (module, exports, require) {\n\n' + src + '\n\n})};' +
@@ -124,7 +125,7 @@ exports.addFile = function (pkgdir, p, doc, callback) {
         }
         var rel = utils.relpath(p, pkgdir);
         var module_path = rel.replace(/\.js$/, '');
-        
+
         // If we are on windows then we need to revert the back-slashes to forward-slashes
         if ( env.isWindows ) {
             module_path = module_path.replace(/\\/, '/');
